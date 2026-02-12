@@ -2,7 +2,7 @@ import pygame
 import sys
 import torch
 import numpy as np
-from rl_train import MLP, load_policy, SCREEN_W, SCREEN_H, TinyPong, UP, DOWN, STAY
+from rl_train import load_policy, TinyPong, UP, DOWN, STAY
 import os
 
 # Initialize Pygame
@@ -19,7 +19,7 @@ DISPLAY_WIDTH = 800
 DISPLAY_HEIGHT = 800
 screen = pygame.display.set_mode((DISPLAY_WIDTH, DISPLAY_HEIGHT))
 pygame.display.set_caption("Pong Clone")
- 
+
 # Use the exact same environment as training
 env = TinyPong()
 
@@ -80,14 +80,16 @@ while running:
 
     # Draw everything
     # env._get_obs() already rendered onto env.surface. Scale it for display.
-    scaled_surface = pygame.transform.scale(env.surface, (DISPLAY_WIDTH, DISPLAY_HEIGHT))
+    scaled_surface = pygame.transform.scale(
+        env.surface, (DISPLAY_WIDTH, DISPLAY_HEIGHT)
+    )
     screen.blit(scaled_surface, (0, 0))
 
     # Draw scores outside the game area
     left_text = font.render(str(left_score), True, WHITE)
     right_text = font.render(str(right_score), True, WHITE)
-    screen.blit(left_text, (DISPLAY_WIDTH//4, 20))
-    screen.blit(right_text, (3*DISPLAY_WIDTH//4, 20))
+    screen.blit(left_text, (DISPLAY_WIDTH // 4, 20))
+    screen.blit(right_text, (3 * DISPLAY_WIDTH // 4, 20))
 
     pygame.display.flip()
     clock.tick(60)
