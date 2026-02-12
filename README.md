@@ -57,3 +57,32 @@ gh repo create YOURUSER/REPO_NAME --public --source . --remote origin --push
 
 ## License
 MIT (add a LICENSE file if you wish).
+
+## Pre-commit Hooks
+Install and enable hooks locally:
+```powershell
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
+The repo includes standard checks for Python and C++:
+- General hygiene: YAML validity, trailing whitespace, EOF newline, merge conflict markers, large files.
+- Python: `ruff` lint + auto-fix and `ruff-format`.
+- C++: `clang-format` for `*.c, *.cc, *.cpp, *.cxx, *.h, *.hh, *.hpp, *.hxx`.
+
+## CI
+GitHub Actions runs on every push to `main` and on pull requests:
+- `pre-commit` across the full repo.
+- Python smoke check (`python -m compileall`).
+
+## Makefile Targets
+Common local commands:
+```powershell
+make install-dev
+make precommit-install
+make precommit
+make check
+make train
+make play
+```
