@@ -49,7 +49,7 @@ while running:
             running = False
 
     # Observation for policy (same as training)
-    obs = env._get_obs()
+    obs = env.get_obs()
 
     # Player controls -> action
     keys = pygame.key.get_pressed()
@@ -79,7 +79,7 @@ while running:
         env.reset()
 
     # Draw everything
-    # env._get_obs() already rendered onto env.surface. Scale it for display.
+    # env.get_obs() already rendered onto env.surface. Scale it for display.
     scaled_surface = pygame.transform.scale(
         env.surface, (DISPLAY_WIDTH, DISPLAY_HEIGHT)
     )

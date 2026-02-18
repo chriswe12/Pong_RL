@@ -1,4 +1,4 @@
-.PHONY: help install-dev precommit-install precommit lint format check smoke train play
+.PHONY: help install-dev precommit-install precommit lint format check smoke test train play
 
 PYTHON ?= python3
 PIP ?= pip3
@@ -12,6 +12,7 @@ help:
 	@echo "  format             Format Python code (ruff-format)"
 	@echo "  check              Run lint + smoke checks"
 	@echo "  smoke              Byte-compile Python sources"
+	@echo "  test               Run unit tests (pytest)"
 	@echo "  train              Run RL training script"
 	@echo "  play               Run game"
 
@@ -34,7 +35,10 @@ format:
 smoke:
 	$(PYTHON) -m compileall -q .
 
-check: lint smoke
+test:
+	$(PYTHON) -m pytest -q
+
+check: lint smoke test
 
 train:
 	$(PYTHON) rl_train.py --episodes 2000 --save policy.pth --eps_start 0.3 --eps_end 0.01

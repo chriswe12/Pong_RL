@@ -84,6 +84,15 @@ class TinyPong:
         # Move ball
         self.ball_x += self.ball_dx
         self.ball_y += self.ball_dy
+        # Keep vertical position in bounds before integer rasterization to avoid
+        # edge-stick oscillations caused by int() truncation at 0 / SCREEN_H-1.
+        if self.ball_y <= 0:
+            self.ball_y = 0
+            self.ball_dy = abs(self.ball_dy)
+        elif self.ball_y >= SCREEN_H - BALL_SIZE:
+            self.ball_y = SCREEN_H - BALL_SIZE
+            self.ball_dy = -abs(self.ball_dy)
+
         ball_rect = pygame.Rect(
             int(self.ball_x), int(self.ball_y), BALL_SIZE, BALL_SIZE
         )
@@ -93,12 +102,16 @@ class TinyPong:
         if len(self.ball_trail) > TRAIL_LEN:
             self.ball_trail.pop(0)
 
-        # Collisions
-        if ball_rect.top <= 0 or ball_rect.bottom >= SCREEN_H:
-            self.ball_dy *= -1
-
-        if ball_rect.colliderect(self.left) or ball_rect.colliderect(self.right):
-            self.ball_dx *= -1
+        # Paddle collisions with separation so we don't repeatedly flip while
+        # overlapping the paddle on subsequent frames.
+        if ball_rect.colliderect(self.left) and self.ball_dx < 0:
+            self.ball_x = self.left.right
+            self.ball_dx = abs(self.ball_dx)
+            ball_rect.x = int(self.ball_x)
+        elif ball_rect.colliderect(self.right) and self.ball_dx > 0:
+            self.ball_x = self.right.left - BALL_SIZE
+            self.ball_dx = -abs(self.ball_dx)
+            ball_rect.x = int(self.ball_x)
 
         reward_left = 0.0
         reward_right = 0.0
@@ -138,6 +151,9 @@ class TinyPong:
         gray = arr[..., 0]  # channel is identical (B/W)
         gray = gray.astype(np.float32) / 255.0
         return gray
+
+    def get_obs(self) -> np.ndarray:
+        return self._get_obs()
 
 
 class MLP(nn.Module):
@@ -186,6 +202,8 @@ def play_episode(
 ):
     obs = env.reset()
     traj = []
+    r_left = 0.0
+    done = False
     for _ in range(max_steps):
         a_left = select_action(
             policy_left, obs, epsilon=epsilon_left, device=device, use_amp=use_amp
@@ -198,7 +216,7 @@ def play_episode(
         obs = obs_next
         if done:
             break
-    return traj, r_left  # return terminal reward as return signal
+    return traj, r_left, done  # return terminal reward and termination flag
 
 
 def train_self_play(
@@ -227,11 +245,13 @@ def train_self_play(
 
     policy_left = MLP().to(dev)
     policy_right = MLP().to(dev)
+    policy_left_train = policy_left
+    policy_right_train = policy_right
 
     if compile_model and hasattr(torch, "compile"):
         try:
-            policy_left = torch.compile(policy_left)
-            policy_right = torch.compile(policy_right)
+            policy_left_train = torch.compile(policy_left)
+            policy_right_train = torch.compile(policy_right)
         except Exception:
             pass
 
@@ -246,9 +266,9 @@ def train_self_play(
         # Linear annealing of epsilon
         frac = ep / max(1, episodes - 1)
         epsilon = eps_start + (eps_end - eps_start) * frac
-        traj, R = play_episode(
-            policy_left,
-            policy_right,
+        traj, R, done = play_episode(
+            policy_left_train,
+            policy_right_train,
             env,
             max_steps=max_steps,
             epsilon_left=epsilon,
@@ -256,17 +276,31 @@ def train_self_play(
             device=dev,
             use_amp=use_amp,
         )
-        # Simple REINFORCE using terminal reward R for all steps
+        # REINFORCE using discounted return-to-go from collected rewards.
         if len(traj) == 0:
             continue
-        returns = R  # same for all steps (sparse)
+        # Compute discounted return-to-go from per-step rewards.
+        # If an episode truncates, inject a tiny shaping signal based on ball
+        # horizontal position to avoid all-zero gradients.
+        if not done:
+            obs_t, action_t, _ = traj[-1]
+            shaped = ((env.ball_x - (SCREEN_W / 2)) / (SCREEN_W / 2)) * 0.05
+            traj[-1] = (obs_t, action_t, float(shaped))
+
+        returns = []
+        G = 0.0
+        for _, _, reward in reversed(traj):
+            G = float(reward) + gamma * G
+            returns.append(G)
+        returns.reverse()
+        returns_t = torch.tensor(returns, dtype=torch.float32, device=dev).view(-1, 1)
 
         # Compute loss
         logps = []
         for obs, action, _ in traj:
             x = torch.from_numpy(obs.reshape(1, -1)).to(dev)
             with autocast_ctx():
-                prob_up = policy_left(x)
+                prob_up = policy_left_train(x)
                 prob_up = torch.clamp(prob_up, 1e-5, 1 - 1e-5)
                 # Bernoulli logprob
                 if action == UP:
@@ -276,7 +310,7 @@ def train_self_play(
             logps.append(logp)
         logps = torch.cat(logps)
         with autocast_ctx():
-            loss = -(returns * logps).mean()
+            loss = -(returns_t * logps).mean()
 
         optimizer_left.zero_grad(set_to_none=True)
         if use_amp:
