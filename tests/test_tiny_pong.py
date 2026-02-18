@@ -2,6 +2,7 @@ import numpy as np
 
 from rl_train import (
     BALL_SIZE,
+    DOWN,
     SCREEN_H,
     SCREEN_W,
     STAY,
